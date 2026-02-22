@@ -21,7 +21,10 @@ import {
   RefreshCw,
   BarChart3,
   Target,
-  Sparkles
+  Sparkles,
+  Users,
+  MessageSquare,
+  ExternalLink
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -51,23 +54,22 @@ import { cn } from '@/lib/utils'
 
 // Types
 interface HorsePrediction {
+  position: number
   number: number
   name: string
+  draw: number
   jockey: string
   trainer: string
   rating: number
   powerScore: number
   winProbability: number
   placeProbability: number
-  draw: number
-  weight: number
+  valueRating: string
   form: string
-  analysis: string
+  weight: number
   strengths: string[]
   concerns: string[]
-  valueRating: string
-  raceName?: string
-  raceNumber?: number
+  analysis: string
 }
 
 interface RaceData {
@@ -76,8 +78,8 @@ interface RaceData {
   raceTime: string
   surface: string
   distance: number
+  going: string
   predictions: HorsePrediction[]
-  going?: string
   raceAnalysis?: string
 }
 
@@ -124,20 +126,20 @@ export default function Home() {
   const [country, setCountry] = useState<string>('UAE')
   const [racecourse, setRacecourse] = useState<string>('')
   const [email, setEmail] = useState<string>('')
-  const [sendEmail, setSendEmail] = useState<boolean>(false)
+  const [sendEmailChecked, setSendEmailChecked] = useState<boolean>(false)
 
   // UI state
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<PredictionResult | null>(null)
   const [error, setError] = useState('')
   const [availableRacecourses, setAvailableRacecourses] = useState<Record<string, { name: string; city: string }[]>>({})
-  const [selectedRace, setSelectedRace] = useState<number>(0)
   const [feedback, setFeedback] = useState<string>('')
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
+  const [activeTab, setActiveTab] = useState<string>('predictions')
 
   // Text translations
   const text = {
-    title: isArabic ? 'Elghali AI' : 'Elghali AI',
+    title: 'Elghali AI',
     subtitle: isArabic ? 'ترشيحات سباقات الخيل الذكية' : 'Smart Horse Racing Predictions',
     welcome: isArabic ? 'مرحباً بك في Elghali AI' : 'Welcome to Elghali AI',
     desc: isArabic ? 'نظام الذكاء الاصطناعي لتحليل سباقات الخيل' : 'AI System for Horse Racing Analysis',
@@ -158,7 +160,7 @@ export default function Home() {
     selectCountry: isArabic ? 'اختر الدولة' : 'Select Country',
     selectRacecourse: isArabic ? 'اختر المضمار' : 'Select Racecourse',
     allRaces: isArabic ? 'جميع السباقات' : 'All Races',
-    powerScore: isArabic ? 'القوة' : 'Power Score',
+    powerScore: isArabic ? 'القوة' : 'Power',
     winProb: isArabic ? 'احتمال الفوز' : 'Win %',
     valueRating: isArabic ? 'القيمة' : 'Value',
     nextBest: isArabic ? 'الترشيح الثاني' : 'Next Best',
@@ -178,12 +180,22 @@ export default function Home() {
     going: isArabic ? 'حالة الأرض' : 'Going',
     draw: isArabic ? 'البوابة' : 'Draw',
     rating: isArabic ? 'التقييم' : 'Rating',
+    horse: isArabic ? 'الحصان' : 'Horse',
+    jockey: isArabic ? 'الفارس' : 'Jockey',
+    trainer: isArabic ? 'المدرب' : 'Trainer',
     features: {
       title: isArabic ? 'مميزات النظام' : 'System Features',
-      f1: isArabic ? 'تحليل متقدم بـ 15+ عامل' : 'Advanced Analysis with 15+ Factors',
+      f1: isArabic ? 'تحليل متقدم بـ 17+ عامل' : 'Advanced Analysis with 17+ Factors',
       f2: isArabic ? 'بيانات حقيقية من المصادر' : 'Real Data from Sources',
       f3: isArabic ? 'تقارير PDF احترافية' : 'Professional PDF Reports',
-      f4: isArabic ? 'دعم اللغة العربية' : 'Arabic Language Support'
+      f4: isArabic ? 'دعم اللغة العربية' : 'Arabic Language Support',
+      f5: isArabic ? 'إرسال بالبريد الإلكتروني' : 'Email Delivery',
+      f6: isArabic ? 'البث المباشر للسباقات' : 'Live Race Streaming'
+    },
+    tabs: {
+      predictions: isArabic ? 'الترشيحات' : 'Predictions',
+      calendar: isArabic ? 'التقويم' : 'Calendar',
+      live: isArabic ? 'البث المباشر' : 'Live Stream'
     }
   }
 
@@ -216,7 +228,6 @@ export default function Home() {
     setLoading(true)
     setError('')
     setResult(null)
-    setSelectedRace(0)
 
     try {
       const res = await fetch('/api/predictions', {
@@ -226,7 +237,7 @@ export default function Home() {
           date: format(date, 'yyyy-MM-dd'),
           racecourse: racecourse.trim(),
           email: email.trim(),
-          sendEmail
+          sendEmail: sendEmailChecked
         })
       })
 
@@ -234,6 +245,7 @@ export default function Home() {
 
       if (data.success) {
         setResult(data)
+        setActiveTab('predictions')
       } else {
         setError(data.message || (isArabic ? 'حدث خطأ' : 'Error occurred'))
       }
@@ -292,14 +304,16 @@ export default function Home() {
                 <p className="text-amber-200 text-sm">{text.subtitle}</p>
               </div>
             </div>
-            <Button
-              variant="ghost"
-              onClick={() => setLang(isArabic ? 'en' : 'ar')}
-              className="text-amber-200 hover:text-amber-400"
-            >
-              <Globe className="w-4 h-4 mr-2" />
-              {isArabic ? 'English' : 'العربية'}
-            </Button>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setLang(isArabic ? 'en' : 'ar')}
+                className="text-amber-200 hover:text-amber-400"
+              >
+                <Globe className="w-4 h-4 mr-2" />
+                {isArabic ? 'English' : 'العربية'}
+              </Button>
+            </div>
           </div>
         </div>
       </header>
@@ -320,470 +334,578 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* Main Form */}
-        <Card className="mb-6 shadow-lg border-amber-200">
-          <CardHeader className="bg-gradient-to-l from-red-900 to-red-800 text-white rounded-t-lg">
-            <CardTitle className="text-amber-400 flex items-center gap-2">
-              <Target className="w-5 h-5" />
-              {isArabic ? 'إدخال بيانات السباق' : 'Race Information'}
-            </CardTitle>
-            <CardDescription className="text-amber-200">
-              {isArabic ? 'حدد التاريخ والمضمار للحصول على الترشيحات' : 'Select date and racecourse to get predictions'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Date Picker */}
-              <div className="space-y-2">
-                <Label className="text-red-900 font-bold flex items-center gap-2">
-                  <CalendarIcon className="w-4 h-4" />
-                  {text.dateLabel}
-                </Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-between bg-white">
-                      {date ? format(date, 'yyyy-MM-dd') : (isArabic ? 'اختر التاريخ' : 'Select date')}
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+          <TabsList className="grid w-full grid-cols-3 bg-red-100">
+            <TabsTrigger value="predictions" className="data-[state=active]:bg-red-900 data-[state=active]:text-white">
+              <Target className="w-4 h-4 mr-2" />
+              {text.tabs.predictions}
+            </TabsTrigger>
+            <TabsTrigger value="calendar" className="data-[state=active]:bg-red-900 data-[state=active]:text-white">
+              <CalendarIcon className="w-4 h-4 mr-2" />
+              {text.tabs.calendar}
+            </TabsTrigger>
+            <TabsTrigger value="live" className="data-[state=active]:bg-red-900 data-[state=active]:text-white">
+              <Play className="w-4 h-4 mr-2" />
+              {text.tabs.live}
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Predictions Tab */}
+          <TabsContent value="predictions" className="mt-4">
+            {/* Main Form */}
+            <Card className="mb-6 shadow-lg border-amber-200">
+              <CardHeader className="bg-gradient-to-l from-red-900 to-red-800 text-white rounded-t-lg">
+                <CardTitle className="text-amber-400 flex items-center gap-2">
+                  <Target className="w-5 h-5" />
+                  {isArabic ? 'إدخال بيانات السباق' : 'Race Information'}
+                </CardTitle>
+                <CardDescription className="text-amber-200">
+                  {isArabic ? 'حدد التاريخ والمضمار للحصول على الترشيحات' : 'Select date and racecourse to get predictions'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Date Picker */}
+                  <div className="space-y-2">
+                    <Label className="text-red-900 font-bold flex items-center gap-2">
                       <CalendarIcon className="w-4 h-4" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={date} onSelect={setDate} initialFocus />
-                  </PopoverContent>
-                </Popover>
-              </div>
+                      {text.dateLabel}
+                    </Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between bg-white">
+                          {date ? format(date, 'yyyy-MM-dd') : (isArabic ? 'اختر التاريخ' : 'Select date')}
+                          <CalendarIcon className="w-4 h-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <Calendar mode="single" selected={date} onSelect={setDate} initialFocus />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
 
-              {/* Country Selector */}
-              <div className="space-y-2">
-                <Label className="text-red-900 font-bold flex items-center gap-2">
-                  <Globe className="w-4 h-4" />
-                  {text.countryLabel}
-                </Label>
-                <Select value={country} onValueChange={setCountry}>
-                  <SelectTrigger className="bg-white">
-                    <SelectValue placeholder={text.selectCountry} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.keys(availableRacecourses).map(c => (
-                      <SelectItem key={c} value={c}>
-                        {getCountryFlag(c)} {c.replace('_', ' ')}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Country Selector */}
+                  <div className="space-y-2">
+                    <Label className="text-red-900 font-bold flex items-center gap-2">
+                      <Globe className="w-4 h-4" />
+                      {text.countryLabel}
+                    </Label>
+                    <Select value={country} onValueChange={setCountry}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder={text.selectCountry} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.keys(availableRacecourses).map(c => (
+                          <SelectItem key={c} value={c}>
+                            {getCountryFlag(c)} {c.replace('_', ' ')}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* Racecourse Selector */}
-              <div className="space-y-2">
-                <Label className="text-red-900 font-bold flex items-center gap-2">
-                  <MapPin className="w-4 h-4" />
-                  {text.raceLabel}
-                </Label>
-                <Select value={racecourse} onValueChange={setRacecourse}>
-                  <SelectTrigger className="bg-white">
-                    <SelectValue placeholder={text.selectRacecourse} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(availableRacecourses[country] || []).map(rc => (
-                      <SelectItem key={rc.name} value={rc.name}>
-                        {rc.name} - {rc.city}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Racecourse Selector */}
+                  <div className="space-y-2">
+                    <Label className="text-red-900 font-bold flex items-center gap-2">
+                      <MapPin className="w-4 h-4" />
+                      {text.raceLabel}
+                    </Label>
+                    <Select value={racecourse} onValueChange={setRacecourse}>
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder={text.selectRacecourse} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(availableRacecourses[country] || []).map(rc => (
+                          <SelectItem key={rc.name} value={rc.name}>
+                            {rc.name} - {rc.city}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {/* Email */}
-              <div className="space-y-2">
-                <Label className="text-red-900 font-bold flex items-center gap-2">
-                  <Mail className="w-4 h-4" />
-                  {text.emailLabel}
-                </Label>
-                <div className="space-y-2">
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email@example.com"
-                    className="bg-white border-amber-200"
-                    dir="ltr"
-                  />
-                  <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={sendEmail}
-                      onChange={(e) => setSendEmail(e.target.checked)}
-                      className="rounded"
-                    />
-                    {text.sendEmailLabel}
-                  </label>
+                  {/* Email */}
+                  <div className="space-y-2">
+                    <Label className="text-red-900 font-bold flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      {text.emailLabel}
+                    </Label>
+                    <div className="space-y-2">
+                      <Input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="email@example.com"
+                        className="bg-white border-amber-200"
+                        dir="ltr"
+                      />
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={sendEmailChecked}
+                          onChange={(e) => setSendEmailChecked(e.target.checked)}
+                          className="rounded"
+                        />
+                        {text.sendEmailLabel}
+                      </label>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            {/* Submit Button */}
-            <Button
-              onClick={handleSubmit}
-              disabled={loading}
-              className="w-full mt-6 bg-gradient-to-l from-red-900 to-red-800 hover:from-red-800 hover:to-red-700 text-white py-6 text-lg"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                  {text.processing}
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-5 h-5 mr-2" />
-                  {text.start}
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+                {/* Submit Button */}
+                <Button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  className="w-full mt-6 bg-gradient-to-l from-red-900 to-red-800 hover:from-red-800 hover:to-red-700 text-white py-6 text-lg"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      {text.processing}
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5 mr-2" />
+                      {text.start}
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
 
-        {/* Error Alert */}
-        {error && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="w-4 h-4" />
-            <AlertTitle>{text.errorTitle}</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+            {/* Error Alert */}
+            {error && (
+              <Alert variant="destructive" className="mb-6">
+                <AlertCircle className="w-4 h-4" />
+                <AlertTitle>{text.errorTitle}</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-        {/* Results Section */}
-        {result && result.success && (
-          <div className="space-y-6">
-            {/* Success Header */}
-            <Card className="shadow-lg border-amber-200">
-              <CardHeader className="bg-gradient-to-l from-green-700 to-green-600 text-white rounded-t-lg">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5" />
-                    {text.success}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-amber-400 text-red-900">
-                      {result.totalRaces} {text.races}
-                    </Badge>
+            {/* Results Section */}
+            {result && result.success && (
+              <div className="space-y-6">
+                {/* Success Header */}
+                <Card className="shadow-lg border-amber-200">
+                  <CardHeader className="bg-gradient-to-l from-green-700 to-green-600 text-white rounded-t-lg">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-white flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5" />
+                        {text.success}
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-amber-400 text-red-900">
+                          {result.totalRaces} {text.races}
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setResult(null)
+                            setError('')
+                          }}
+                          className="text-white border-white hover:bg-white/20"
+                        >
+                          <RefreshCw className="w-4 h-4 mr-1" />
+                          {text.newAnalysis}
+                        </Button>
+                      </div>
+                    </div>
+                    <p className="text-green-200 text-sm mt-1">
+                      {result.racecourse} - {result.date} ({result.country})
+                    </p>
+                  </CardHeader>
+                </Card>
+
+                {/* NAP Section */}
+                <Card className="border-2 border-amber-400 bg-gradient-to-l from-amber-50 to-amber-100 shadow-lg">
+                  <CardContent className="p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Star className="w-6 h-6 text-amber-500 fill-amber-500" />
+                      <h3 className="font-bold text-red-900 text-lg">{text.nap}</h3>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-bold text-amber-700 mb-2">{result.napOfTheDay.horseName}</p>
+                      <p className="text-gray-600 mb-2">{result.napOfTheDay.raceName}</p>
+                      <div className="flex items-center justify-center gap-4 mb-3">
+                        <Badge className="bg-green-600 text-white text-base px-4 py-1">
+                          {result.napOfTheDay.confidence}% {isArabic ? 'ثقة' : 'Confidence'}
+                        </Badge>
+                      </div>
+                      <p className="text-gray-700">{result.napOfTheDay.reason}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Quick Picks */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="border-gray-200">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-blue-600" />
+                        {text.nextBest}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="font-bold text-lg">{result.nextBest.horseName}</p>
+                      <p className="text-sm text-gray-600">{result.nextBest.raceName}</p>
+                      <p className="text-xs text-gray-500 mt-1">{result.nextBest.reason}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-gray-200">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-purple-600" />
+                        {text.valuePick}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="font-bold text-lg">{result.valuePick.horseName}</p>
+                      <p className="text-sm text-gray-600">{result.valuePick.raceName}</p>
+                      <p className="text-xs text-gray-500 mt-1">{result.valuePick.reason}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap gap-3 justify-center">
+                  {result.pdfGenerated && (
+                    <Button
+                      onClick={handleDownloadPdf}
+                      className="bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      {text.downloadPdf}
+                    </Button>
+                  )}
+                  {result.liveStreamUrl && (
                     <Button
                       variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setResult(null)
-                        setError('')
-                      }}
-                      className="text-white border-white hover:bg-white/20"
+                      onClick={() => window.open(result.liveStreamUrl!, '_blank')}
+                      className="border-red-300 text-red-700 hover:bg-red-50"
                     >
-                      <RefreshCw className="w-4 h-4 mr-1" />
-                      {text.newAnalysis}
+                      <Play className="w-4 h-4 mr-2" />
+                      {text.liveStream}
+                      <ExternalLink className="w-3 h-3 mr-1" />
                     </Button>
-                  </div>
+                  )}
                 </div>
-                <p className="text-green-200 text-sm mt-1">
-                  {result.racecourse} - {result.date} ({result.country})
-                </p>
-              </CardHeader>
-            </Card>
 
-            {/* NAP Section */}
-            <Card className="border-2 border-amber-400 bg-gradient-to-l from-amber-50 to-amber-100 shadow-lg">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Star className="w-6 h-6 text-amber-500 fill-amber-500" />
-                  <h3 className="font-bold text-red-900 text-lg">{text.nap}</h3>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-amber-700 mb-2">{result.napOfTheDay.horseName}</p>
-                  <p className="text-gray-600 mb-2">{result.napOfTheDay.raceName}</p>
-                  <div className="flex items-center justify-center gap-4 mb-3">
-                    <Badge className="bg-green-600 text-white text-base px-4 py-1">
-                      {result.napOfTheDay.confidence}% {isArabic ? 'ثقة' : 'Confidence'}
-                    </Badge>
-                  </div>
-                  <p className="text-gray-700">{result.napOfTheDay.reason}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Picks */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="border-gray-200">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-blue-600" />
-                    {text.nextBest}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="font-bold text-lg">{result.nextBest.horseName}</p>
-                  <p className="text-sm text-gray-600">{result.nextBest.raceName}</p>
-                </CardContent>
-              </Card>
-              <Card className="border-gray-200">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-purple-600" />
-                    {text.valuePick}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="font-bold text-lg">{result.valuePick.horseName}</p>
-                  <p className="text-sm text-gray-600">{result.valuePick.raceName}</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap gap-3 justify-center">
-              {result.pdfGenerated && (
-                <Button
-                  onClick={handleDownloadPdf}
-                  className="bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  {text.downloadPdf}
-                </Button>
-              )}
-              {result.liveStreamUrl && (
-                <Button
-                  variant="outline"
-                  onClick={() => window.open(result.liveStreamUrl!, '_blank')}
-                  className="border-red-300 text-red-700 hover:bg-red-50"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  {text.liveStream}
-                </Button>
-              )}
-            </div>
-
-            {/* Race Tabs */}
-            <Card className="shadow-lg">
-              <CardHeader className="bg-gradient-to-l from-red-900 to-red-800 text-white rounded-t-lg pb-3">
-                <CardTitle className="text-amber-400 flex items-center gap-2">
-                  <Trophy className="w-5 h-5" />
-                  {text.allRaces}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Tabs defaultValue="race-0" className="w-full">
-                  <TabsList className="w-full justify-start bg-gray-100 rounded-none p-0 h-auto flex-wrap">
-                    {result.races.map((race, i) => (
-                      <TabsTrigger
-                        key={i}
-                        value={`race-${i}`}
-                        className="px-4 py-2 rounded-none data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-amber-500"
-                      >
-                        <Clock className="w-3 h-3 mr-1" />
-                        {race.raceTime}
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-
-                  {result.races.map((race, i) => (
-                    <TabsContent key={i} value={`race-${i}`} className="p-4 mt-0">
-                      {/* Race Info */}
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        <Badge variant="outline" className="text-red-700 border-red-300">
-                          {race.raceName}
-                        </Badge>
-                        <Badge variant="outline">
-                          {race.distance}m
-                        </Badge>
-                        <Badge variant="outline">
-                          {race.surface}
-                        </Badge>
-                        {race.going && (
-                          <Badge variant="outline">
-                            {race.going}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Predictions Table */}
-                      <div className="overflow-x-auto">
-                        <table className="w-full border-collapse">
-                          <thead>
-                            <tr className="bg-gray-100">
-                              <th className="p-2 text-right text-sm font-bold text-red-900">Pos</th>
-                              <th className="p-2 text-right text-sm font-bold text-red-900">{isArabic ? 'الحصان' : 'Horse'}</th>
-                              <th className="p-2 text-right text-sm font-bold text-red-900">{text.draw}</th>
-                              <th className="p-2 text-right text-sm font-bold text-red-900">{isArabic ? 'الفارس' : 'Jockey'}</th>
-                              <th className="p-2 text-right text-sm font-bold text-red-900">{text.rating}</th>
-                              <th className="p-2 text-right text-sm font-bold text-red-900">{text.powerScore}</th>
-                              <th className="p-2 text-right text-sm font-bold text-red-900">{text.winProb}</th>
-                              <th className="p-2 text-right text-sm font-bold text-red-900">{text.valueRating}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {race.predictions.slice(0, 5).map((horse, j) => (
-                              <tr
-                                key={j}
-                                className={cn(
-                                  "border-b",
-                                  j === 0 && "bg-amber-50",
-                                  j === 1 && "bg-gray-50",
-                                  j === 2 && "bg-orange-50"
-                                )}
-                              >
-                                <td className="p-2">
-                                  <span className={cn(
-                                    "inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-sm font-bold",
-                                    j === 0 && "bg-amber-500",
-                                    j === 1 && "bg-gray-400",
-                                    j === 2 && "bg-orange-400",
-                                    j > 2 && "bg-gray-300"
-                                  )}>
-                                    {j + 1}
-                                  </span>
-                                </td>
-                                <td className="p-2 font-bold">{horse.name}</td>
-                                <td className="p-2">{horse.draw}</td>
-                                <td className="p-2 text-sm">{horse.jockey}</td>
-                                <td className="p-2">{horse.rating}</td>
-                                <td className="p-2">
-                                  <div className="flex items-center gap-2">
-                                    <Progress value={horse.powerScore} className="w-12 h-2" />
-                                    <span className="font-bold text-red-700">{horse.powerScore.toFixed(1)}</span>
-                                  </div>
-                                </td>
-                                <td className="p-2 text-green-600 font-semibold">
-                                  {horse.winProbability.toFixed(1)}%
-                                </td>
-                                <td className="p-2">
-                                  <Badge className={cn(
-                                    "text-xs",
-                                    horse.valueRating === 'Excellent' && "bg-green-600",
-                                    horse.valueRating === 'Good' && "bg-blue-600",
-                                    horse.valueRating === 'Fair' && "bg-yellow-600",
-                                    horse.valueRating === 'Poor' && "bg-gray-400"
-                                  )}>
-                                    {horse.valueRating}
-                                  </Badge>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Horse Details Accordion */}
-                      <Accordion type="single" collapsible className="mt-4">
-                        {race.predictions.slice(0, 3).map((horse, j) => (
-                          <AccordionItem key={j} value={`horse-${j}`}>
-                            <AccordionTrigger className="hover:bg-gray-50 px-3">
-                              <div className="flex items-center gap-3">
-                                <span className={cn(
-                                  "w-5 h-5 rounded-full text-white text-xs flex items-center justify-center",
-                                  j === 0 && "bg-amber-500",
-                                  j === 1 && "bg-gray-400",
-                                  j === 2 && "bg-orange-400"
-                                )}>
-                                  {j + 1}
-                                </span>
-                                <span className="font-bold">{horse.name}</span>
-                                <span className="text-sm text-gray-500">- {horse.jockey}</span>
-                              </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="px-3">
-                              <div className="space-y-3">
-                                {horse.strengths.length > 0 && (
-                                  <div>
-                                    <p className="text-sm font-semibold text-green-700 mb-1">{text.strengths}:</p>
-                                    <ul className="text-sm text-gray-600 list-disc list-inside">
-                                      {horse.strengths.map((s, k) => (
-                                        <li key={k}>{s}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                {horse.concerns.length > 0 && (
-                                  <div>
-                                    <p className="text-sm font-semibold text-red-700 mb-1">{text.concerns}:</p>
-                                    <ul className="text-sm text-gray-600 list-disc list-inside">
-                                      {horse.concerns.map((c, k) => (
-                                        <li key={k}>{c}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                )}
-                                <div className="grid grid-cols-2 gap-2 text-sm">
-                                  <div><strong>{isArabic ? 'المدرب:' : 'Trainer:'}</strong> {horse.trainer}</div>
-                                  <div><strong>{isArabic ? 'الوزن:' : 'Weight:'}</strong> {horse.weight}kg</div>
-                                  <div><strong>{isArabic ? 'الشكل:' : 'Form:'}</strong> {horse.form || 'N/A'}</div>
-                                  <div><strong>{isArabic ? 'احتمال المركز:' : 'Place %:'}</strong> {horse.placeProbability.toFixed(1)}%</div>
-                                </div>
-                              </div>
-                            </AccordionContent>
-                          </AccordionItem>
+                {/* Race Tabs */}
+                <Card className="shadow-lg">
+                  <CardHeader className="bg-gradient-to-l from-red-900 to-red-800 text-white rounded-t-lg pb-3">
+                    <CardTitle className="text-amber-400 flex items-center gap-2">
+                      <Trophy className="w-5 h-5" />
+                      {text.allRaces}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <Tabs defaultValue="race-0" className="w-full">
+                      <TabsList className="w-full justify-start bg-gray-100 rounded-none p-0 h-auto flex-wrap">
+                        {result.races.map((race, i) => (
+                          <TabsTrigger
+                            key={i}
+                            value={`race-${i}`}
+                            className="px-4 py-2 rounded-none data-[state=active]:bg-white data-[state=active]:border-b-2 data-[state=active]:border-amber-500"
+                          >
+                            <Clock className="w-3 h-3 mr-1" />
+                            {race.raceTime}
+                          </TabsTrigger>
                         ))}
-                      </Accordion>
-                    </TabsContent>
-                  ))}
-                </Tabs>
-              </CardContent>
-            </Card>
+                      </TabsList>
 
-            {/* Sources */}
-            <Card className="border-gray-200">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <strong>{text.sources}:</strong>
-                  <span>{result.sources.join(' | ')}</span>
-                </div>
-              </CardContent>
-            </Card>
+                      {result.races.map((race, i) => (
+                        <TabsContent key={i} value={`race-${i}`} className="p-4 mt-0">
+                          {/* Race Info */}
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            <Badge variant="outline" className="text-red-700 border-red-300">
+                              {race.raceName}
+                            </Badge>
+                            <Badge variant="outline">
+                              {race.distance}m
+                            </Badge>
+                            <Badge variant="outline">
+                              {race.surface}
+                            </Badge>
+                            {race.going && (
+                              <Badge variant="outline">
+                                {race.going}
+                              </Badge>
+                            )}
+                          </div>
 
-            {/* Feedback Section */}
-            <Card className="border-gray-200">
+                          {/* Predictions Table */}
+                          <div className="overflow-x-auto">
+                            <table className="w-full border-collapse">
+                              <thead>
+                                <tr className="bg-gray-100">
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">#</th>
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">{text.horse}</th>
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">{text.draw}</th>
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">{text.jockey}</th>
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">{text.rating}</th>
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">{text.powerScore}</th>
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">{text.winProb}</th>
+                                  <th className="p-2 text-right text-sm font-bold text-red-900">{text.valueRating}</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {race.predictions.slice(0, 5).map((horse, j) => (
+                                  <tr
+                                    key={j}
+                                    className={cn(
+                                      "border-b",
+                                      j === 0 && "bg-amber-50",
+                                      j === 1 && "bg-gray-50",
+                                      j === 2 && "bg-orange-50"
+                                    )}
+                                  >
+                                    <td className="p-2">
+                                      <span className={cn(
+                                        "inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-sm font-bold",
+                                        j === 0 && "bg-amber-500",
+                                        j === 1 && "bg-gray-400",
+                                        j === 2 && "bg-orange-400",
+                                        j > 2 && "bg-gray-300"
+                                      )}>
+                                        {j + 1}
+                                      </span>
+                                    </td>
+                                    <td className="p-2 font-bold">{horse.number}. {horse.name}</td>
+                                    <td className="p-2">{horse.draw}</td>
+                                    <td className="p-2 text-sm">{horse.jockey}</td>
+                                    <td className="p-2">{horse.rating}</td>
+                                    <td className="p-2">
+                                      <div className="flex items-center gap-2">
+                                        <Progress value={horse.powerScore} className="w-12 h-2" />
+                                        <span className="font-bold text-red-700">{horse.powerScore.toFixed(1)}</span>
+                                      </div>
+                                    </td>
+                                    <td className="p-2 text-green-600 font-semibold">
+                                      {horse.winProbability.toFixed(1)}%
+                                    </td>
+                                    <td className="p-2">
+                                      <Badge className={cn(
+                                        "text-xs",
+                                        horse.valueRating === 'Excellent' && "bg-green-600",
+                                        horse.valueRating === 'Good' && "bg-blue-600",
+                                        horse.valueRating === 'Fair' && "bg-yellow-600",
+                                        horse.valueRating === 'Poor' && "bg-gray-400"
+                                      )}>
+                                        {horse.valueRating}
+                                      </Badge>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Horse Details Accordion */}
+                          <Accordion type="single" collapsible className="mt-4">
+                            {race.predictions.slice(0, 3).map((horse, j) => (
+                              <AccordionItem key={j} value={`horse-${j}`}>
+                                <AccordionTrigger className="hover:bg-gray-50 px-3">
+                                  <div className="flex items-center gap-3">
+                                    <span className={cn(
+                                      "w-5 h-5 rounded-full text-white text-xs flex items-center justify-center",
+                                      j === 0 && "bg-amber-500",
+                                      j === 1 && "bg-gray-400",
+                                      j === 2 && "bg-orange-400"
+                                    )}>
+                                      {j + 1}
+                                    </span>
+                                    <span className="font-bold">{horse.name}</span>
+                                    <span className="text-sm text-gray-500">- {horse.jockey}</span>
+                                  </div>
+                                </AccordionTrigger>
+                                <AccordionContent className="px-3">
+                                  <div className="space-y-3">
+                                    {horse.strengths.length > 0 && (
+                                      <div>
+                                        <p className="text-sm font-semibold text-green-700 mb-1">{text.strengths}:</p>
+                                        <ul className="text-sm text-gray-600 list-disc list-inside">
+                                          {horse.strengths.map((s, k) => (
+                                            <li key={k}>{s}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {horse.concerns.length > 0 && (
+                                      <div>
+                                        <p className="text-sm font-semibold text-red-700 mb-1">{text.concerns}:</p>
+                                        <ul className="text-sm text-gray-600 list-disc list-inside">
+                                          {horse.concerns.map((c, k) => (
+                                            <li key={k}>{c}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    <div className="grid grid-cols-2 gap-2 text-sm">
+                                      <div><strong>{text.trainer}:</strong> {horse.trainer}</div>
+                                      <div><strong>{isArabic ? 'الوزن:' : 'Weight:'}</strong> {horse.weight}kg</div>
+                                      <div><strong>{isArabic ? 'الشكل:' : 'Form:'}</strong> {horse.form || 'N/A'}</div>
+                                      <div><strong>{isArabic ? 'احتمال المركز:' : 'Place %:'}</strong> {horse.placeProbability.toFixed(1)}%</div>
+                                    </div>
+                                  </div>
+                                </AccordionContent>
+                              </AccordionItem>
+                            ))}
+                          </Accordion>
+                        </TabsContent>
+                      ))}
+                    </Tabs>
+                  </CardContent>
+                </Card>
+
+                {/* Sources */}
+                <Card className="border-gray-200">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <strong>{text.sources}:</strong>
+                      <span>{result.sources.join(' | ')}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Feedback Section */}
+                <Card className="border-gray-200">
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4" />
+                      {text.feedbackTitle}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {feedbackSubmitted ? (
+                      <div className="flex items-center gap-2 text-green-600">
+                        <CheckCircle2 className="w-5 h-5" />
+                        {text.thanksFeedback}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <Textarea
+                          value={feedback}
+                          onChange={(e) => setFeedback(e.target.value)}
+                          placeholder={text.feedbackPlaceholder}
+                          rows={3}
+                        />
+                        <Button onClick={handleFeedbackSubmit} disabled={!feedback.trim()}>
+                          <Send className="w-4 h-4 mr-2" />
+                          {text.sendFeedback}
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Features Section */}
+            {!result && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-8">
+                {[
+                  { icon: '📊', title: text.features.f1 },
+                  { icon: '🌐', title: text.features.f2 },
+                  { icon: '📄', title: text.features.f3 },
+                  { icon: '🔤', title: text.features.f4 },
+                  { icon: '📧', title: text.features.f5 },
+                  { icon: '📺', title: text.features.f6 }
+                ].map((item, i) => (
+                  <Card key={i} className="border-amber-200 text-center">
+                    <CardContent className="pt-4">
+                      <div className="text-3xl mb-2">{item.icon}</div>
+                      <div className="text-sm font-medium text-red-900">{item.title}</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Calendar Tab */}
+          <TabsContent value="calendar" className="mt-4">
+            <Card className="border-amber-200">
               <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Send className="w-4 h-4" />
-                  {text.feedbackTitle}
+                <CardTitle className="text-red-900 flex items-center gap-2">
+                  <CalendarIcon className="w-5 h-5" />
+                  {isArabic ? 'تقويم السباقات' : 'Racing Calendar'}
                 </CardTitle>
+                <CardDescription>
+                  {isArabic ? 'اختر تاريخاً لعرض السباقات المتاحة' : 'Select a date to view available races'}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                {feedbackSubmitted ? (
-                  <div className="flex items-center gap-2 text-green-600">
-                    <CheckCircle2 className="w-5 h-5" />
-                    {text.thanksFeedback}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <Textarea
-                      value={feedback}
-                      onChange={(e) => setFeedback(e.target.value)}
-                      placeholder={text.feedbackPlaceholder}
-                      rows={3}
-                    />
-                    <Button onClick={handleFeedbackSubmit} disabled={!feedback.trim()}>
-                      <Send className="w-4 h-4 mr-2" />
-                      {text.sendFeedback}
-                    </Button>
-                  </div>
-                )}
+                <div className="flex justify-center">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={(d) => {
+                      setDate(d)
+                      setActiveTab('predictions')
+                    }}
+                    className="rounded-md border"
+                  />
+                </div>
+                <div className="mt-4 text-center text-gray-600">
+                  <p>{isArabic ? 'انقر على تاريخ للانتقال إلى الترشيحات' : 'Click on a date to go to predictions'}</p>
+                </div>
               </CardContent>
             </Card>
-          </div>
-        )}
+          </TabsContent>
 
-        {/* Features Section */}
-        {!result && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
-            {[
-              { icon: '📊', title: text.features.f1 },
-              { icon: '🌐', title: text.features.f2 },
-              { icon: '📄', title: text.features.f3 },
-              { icon: '🔤', title: text.features.f4 }
-            ].map((item, i) => (
-              <Card key={i} className="border-amber-200 text-center">
-                <CardContent className="pt-4">
-                  <div className="text-3xl mb-2">{item.icon}</div>
-                  <div className="text-sm font-medium text-red-900">{item.title}</div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+          {/* Live Stream Tab */}
+          <TabsContent value="live" className="mt-4">
+            <Card className="border-amber-200">
+              <CardHeader>
+                <CardTitle className="text-red-900 flex items-center gap-2">
+                  <Play className="w-5 h-5" />
+                  {isArabic ? 'البث المباشر للسباقات' : 'Live Race Streaming'}
+                </CardTitle>
+                <CardDescription>
+                  {isArabic ? 'شاهد السباقات مباشرة من مضامير الإمارات' : 'Watch races live from UAE racecourses'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="bg-gray-100 rounded-lg p-8 text-center">
+                    <Play className="w-16 h-16 text-red-700 mx-auto mb-4" />
+                    <p className="text-gray-600 mb-4">
+                      {isArabic ? 'اختر مضماراً من الترشيحات لمشاهدة البث المباشر' : 'Select a racecourse from predictions to watch live stream'}
+                    </p>
+                    <Button
+                      onClick={() => window.open('https://www.emiratesracing.com/live-streams', '_blank')}
+                      className="bg-red-700 hover:bg-red-600"
+                    >
+                      <ExternalLink className="w-4 h-4 mr-2" />
+                      {isArabic ? 'فتح صفحة البث المباشر' : 'Open Live Stream Page'}
+                    </Button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {[
+                      { name: 'Meydan', url: 'https://www.emiratesracing.com/live-streams/dubai-racing-1' },
+                      { name: 'Jebel Ali', url: 'https://www.emiratesracing.com/live-streams/dubai-racing-2' },
+                      { name: 'Abu Dhabi', url: 'https://www.emiratesracing.com/live-streams/abu-dhabi-racing' },
+                      { name: 'Sharjah', url: 'https://www.emiratesracing.com/live-streams/sharjah-racing' },
+                      { name: 'Al Ain', url: 'https://www.emiratesracing.com/live-streams/al-ain-racing' },
+                    ].map((track) => (
+                      <Button
+                        key={track.name}
+                        variant="outline"
+                        onClick={() => window.open(track.url, '_blank')}
+                        className="border-amber-300 text-red-700 hover:bg-amber-50"
+                      >
+                        {track.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </main>
 
       {/* Footer */}

@@ -1,14 +1,20 @@
+/**
+ * Elghali AI - Predictions API
+ * Main API endpoint for horse racing predictions
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
-import { raceDataFetcher, RACECOURSES } from '@/lib/race-data-fetcher'
-import { predictionEngine } from '@/lib/prediction-engine'
-import { pdfGenerator } from '@/lib/pdf-generator'
-import { sendPredictionEmail } from '@/lib/email-service'
-import type { HorsePrediction, RacePredictionData, ReportData } from '@/lib/pdf-generator'
+import { UAE_RACES, RACECOURSES, getRaceData, normalizeRacecourse } from '@/lib/race-database'
+import { predictionEngine } from '@/lib/prediction-engine-v2'
+import { pdfGenerator } from '@/lib/pdf-generator-v2'
+import { sendPredictionEmail } from '@/lib/email-service-v2'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { date, racecourse, email, sendEmail } = body
+
+    console.log(`[API] Request: date=${date}, racecourse=${racecourse}, email=${email}`)
 
     // Validate required fields
     if (!date || !racecourse) {
@@ -18,7 +24,6 @@ export async function POST(request: NextRequest) {
         racecourse: racecourse || '',
         date: date || '',
         totalRaces: 0,
-        predictions: [],
         races: [],
         napOfTheDay: { horseName: '', raceName: '', reason: '', confidence: 0 },
         nextBest: { horseName: '', raceName: '', reason: '' },
@@ -28,181 +33,174 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    console.log(`[Predictions API] Racecourse: ${racecourse}, Date: ${date}`)
-
-    // Fetch race data
-    const fetchResult = await raceDataFetcher.fetchRaceData(racecourse, date)
-
-    if (!fetchResult.success || !fetchResult.data) {
+    // Normalize racecourse name
+    const normalizedName = normalizeRacecourse(racecourse)
+    
+    // Find race data
+    const raceDayData = getRaceData(normalizedName, date)
+    
+    if (!raceDayData) {
       return NextResponse.json({
         success: false,
-        message: fetchResult.message || 'لم يتم العثور على بيانات السباق',
-        racecourse,
+        message: `لا توجد سباقات في ${normalizedName} بتاريخ ${date}`,
+        racecourse: normalizedName,
         date,
         totalRaces: 0,
-        predictions: [],
         races: [],
         napOfTheDay: { horseName: '', raceName: '', reason: '', confidence: 0 },
         nextBest: { horseName: '', raceName: '', reason: '' },
         valuePick: { horseName: '', raceName: '', reason: '' },
-        sources: fetchResult.sources,
+        sources: [],
         availableRacecourses: getRacecoursesByCountry()
       }, { status: 404 })
     }
 
-    const raceData = fetchResult.data
-    const racePredictions: RacePredictionData[] = []
+    console.log(`[API] Found ${raceDayData.races.length} races`)
 
     // Generate predictions for each race
-    for (const race of raceData.races) {
-      const prediction = predictionEngine.predictRace(race)
-      
-      const horsePredictions: HorsePrediction[] = prediction.predictions.slice(0, 5).map(p => ({
-        number: p.horse.number,
-        name: p.horse.name,
-        jockey: p.horse.jockey,
-        trainer: p.horse.trainer,
-        rating: p.horse.rating,
-        powerScore: p.powerScore,
-        winProbability: p.winProbability,
-        placeProbability: p.placeProbability,
-        draw: p.horse.draw,
-        weight: p.horse.weight,
-        form: p.horse.form,
-        analysis: p.analysis,
-        strengths: p.strengths,
-        concerns: p.concerns,
-        valueRating: p.valueRating
-      }))
+    const racePredictions = []
+    const allPredictions: any[] = []
 
+    for (const race of raceDayData.races) {
+      const prediction = predictionEngine.predictRace(race, normalizedName)
+      
       racePredictions.push({
         raceNumber: race.number,
         raceName: race.name,
         raceTime: race.time,
-        distance: race.distance,
         surface: race.surface,
+        distance: race.distance,
         going: race.going,
-        predictions: horsePredictions,
+        predictions: prediction.predictions.slice(0, 5).map((p, i) => ({
+          position: i + 1,
+          number: p.number,
+          name: p.name,
+          draw: p.draw,
+          jockey: p.jockey,
+          trainer: p.trainer,
+          rating: p.rating,
+          powerScore: p.powerScore,
+          winProbability: p.winProbability,
+          placeProbability: p.placeProbability,
+          valueRating: p.valueRating,
+          form: p.form,
+          weight: p.weight,
+          strengths: p.strengths,
+          concerns: p.concerns,
+          analysis: p.analysis
+        })),
         raceAnalysis: prediction.raceAnalysis
+      })
+
+      // Collect all predictions for NAP selection
+      prediction.predictions.forEach((p, i) => {
+        allPredictions.push({
+          ...p,
+          raceNumber: race.number,
+          raceName: race.name,
+          position: i + 1
+        })
       })
     }
 
-    // Determine NAP, Next Best, and Value Pick
-    const allPredictions = racePredictions.flatMap(r => 
-      r.predictions.map(p => ({ ...p, raceName: r.raceName, raceNumber: r.raceNumber }))
-    )
-    
-    // Sort by power score to find best overall
-    const sortedPredictions = [...allPredictions].sort((a, b) => b.powerScore - a.powerScore)
-    
-    const napPick = sortedPredictions[0]
-    const nextBestPick = sortedPredictions[1] || sortedPredictions[0]
-    
-    // Find value pick (good score with good value rating)
-    const valuePickHorse = sortedPredictions.find(p => 
-      p.valueRating === 'Excellent' || p.valueRating === 'Good'
-    ) || sortedPredictions[2] || sortedPredictions[0]
+    // Sort by power score to find best overall picks
+    allPredictions.sort((a, b) => b.powerScore - a.powerScore)
 
-    // Generate PDF report
-    const reportData: ReportData = {
-      racecourse: raceData.racecourse,
-      country: raceData.country,
-      date: raceData.date,
-      totalRaces: raceData.races.length,
-      races: racePredictions,
+    // NAP of the Day - highest power score
+    const napPick = allPredictions[0]
+    
+    // Next Best - second highest
+    const nextBestPick = allPredictions[1] || allPredictions[0]
+    
+    // Value Pick - best value rating in top 10
+    const valuePickHorse = allPredictions.slice(0, 10).find(p => 
+      p.valueRating === 'Excellent' || p.valueRating === 'Good'
+    ) || allPredictions[2] || allPredictions[0]
+
+    // Prepare report data
+    const reportData = {
+      racecourse: raceDayData.racecourse,
+      country: raceDayData.country,
+      date: raceDayData.date,
+      totalRaces: raceDayData.races.length,
+      races: racePredictions.map(rp => ({
+        ...rp,
+        predictions: rp.predictions.map(p => ({
+          ...p,
+          strengths: p.strengths || [],
+          concerns: p.concerns || []
+        }))
+      })),
       napOfTheDay: {
         horseName: napPick.name,
         raceName: napPick.raceName,
-        reason: `Power Score: ${napPick.powerScore.toFixed(1)} | Win Probability: ${napPick.winProbability.toFixed(1)}% | الفارس: ${napPick.jockey}`,
-        confidence: Math.round(napPick.winProbability * 2)
+        reason: `Power Score: ${napPick.powerScore} | Win: ${napPick.winProbability.toFixed(1)}% | الفارس: ${napPick.jockey}`,
+        confidence: Math.min(99, Math.round(napPick.winProbability * 2.5 + napPick.powerScore / 2))
       },
       nextBest: {
         horseName: nextBestPick.name,
         raceName: nextBestPick.raceName,
-        reason: `Power Score: ${nextBestPick.powerScore.toFixed(1)} | الفارس: ${nextBestPick.jockey}`
+        reason: `Power Score: ${nextBestPick.powerScore} | الفارس: ${nextBestPick.jockey}`
       },
       valuePick: {
         horseName: valuePickHorse.name,
         raceName: valuePickHorse.raceName,
-        reason: `Value Rating: ${valuePickHorse.valueRating} | Power Score: ${valuePickHorse.powerScore.toFixed(1)}`
+        reason: `Value: ${valuePickHorse.valueRating} | Power: ${valuePickHorse.powerScore}`
       },
-      sources: raceData.sources,
-      generatedAt: new Date().toISOString()
+      generatedAt: new Date().toLocaleString('ar-AE', { timeZone: 'Asia/Dubai' })
     }
 
     // Generate PDF
     const pdfResult = await pdfGenerator.generateReport(reportData)
+    console.log(`[API] PDF generated: ${pdfResult.success}`)
 
     // Send email if requested
     let emailSent = false
     if (sendEmail && email && pdfResult.success) {
-      try {
-        const emailResult = await sendPredictionEmail(
-          email,
-          raceData.racecourse,
-          raceData.date,
-          pdfResult.pdfPath,
-          reportData.napOfTheDay,
-          raceData.races.length
-        )
-        emailSent = emailResult.success
-      } catch (emailError) {
-        console.error('[Predictions API] Email error:', emailError)
-      }
+      const emailResult = await sendPredictionEmail({
+        to: email,
+        racecourse: raceDayData.racecourse,
+        date: raceDayData.date,
+        totalRaces: raceDayData.races.length,
+        napOfTheDay: reportData.napOfTheDay,
+        pdfPath: pdfResult.pdfPath || undefined
+      })
+      emailSent = emailResult.success
+      console.log(`[API] Email sent: ${emailSent}`)
     }
 
-    // Return the response
+    // Get live stream URL
+    const racecourseInfo = RACECOURSES.UAE.find(r => r.name === normalizedName)
+    const liveStreamUrl = racecourseInfo?.liveStreamUrl || null
+
+    // Return response
     return NextResponse.json({
       success: true,
-      message: `تم تحليل ${raceData.races.length} سباق في ${raceData.racecourse} بنجاح`,
-      racecourse: raceData.racecourse,
-      country: raceData.country,
-      date: raceData.date,
-      totalRaces: raceData.races.length,
+      message: `تم تحليل ${raceDayData.races.length} سباق في ${raceDayData.racecourse} بنجاح`,
+      racecourse: raceDayData.racecourse,
+      country: raceDayData.country,
+      date: raceDayData.date,
+      totalRaces: raceDayData.races.length,
       races: racePredictions,
-      predictions: racePredictions.map(r => ({
-        raceNumber: r.raceNumber,
-        raceName: r.raceName,
-        raceTime: r.raceTime,
-        surface: r.surface,
-        distance: r.distance,
-        predictions: r.predictions.slice(0, 5).map((p, i) => ({
-          position: i + 1,
-          horseNumber: p.number,
-          horseName: p.name,
-          draw: p.draw,
-          jockey: p.jockey,
-          trainer: p.trainer,
-          rating: String(p.rating),
-          powerScore: Math.round(p.powerScore * 10) / 10,
-          winProbability: `${p.winProbability.toFixed(1)}%`,
-          placeProbability: `${p.placeProbability.toFixed(1)}%`,
-          valueRating: p.valueRating,
-          analysis: p.strengths.slice(0, 2).join(' - '),
-          strengths: p.strengths,
-          concerns: p.concerns
-        }))
-      })),
       napOfTheDay: reportData.napOfTheDay,
       nextBest: reportData.nextBest,
       valuePick: reportData.valuePick,
-      sources: raceData.sources,
+      sources: ['Emirates Racing Authority', 'Elghali AI Analysis'],
       pdfPath: pdfResult.success ? pdfResult.pdfPath : null,
       pdfGenerated: pdfResult.success,
       emailSent,
-      liveStreamUrl: raceData.races[0]?.liveStreamUrl || null,
+      liveStreamUrl,
       availableRacecourses: getRacecoursesByCountry()
     })
 
   } catch (error) {
-    console.error('[Predictions API] Error:', error)
+    console.error('[API] Error:', error)
     return NextResponse.json({
       success: false,
-      message: 'حدث خطأ أثناء معالجة الطلب. حاول مرة أخرى.',
+      message: 'حدث خطأ أثناء معالجة الطلب',
       racecourse: '',
       date: '',
       totalRaces: 0,
-      predictions: [],
       races: [],
       napOfTheDay: { horseName: '', raceName: '', reason: '', confidence: 0 },
       nextBest: { horseName: '', raceName: '', reason: '' },
@@ -214,12 +212,15 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET endpoint to fetch available racecourses
+ * GET - Available racecourses and dates
  */
 export async function GET() {
+  const availableDates = [...new Set(UAE_RACES.map(r => r.date))].sort()
+  
   return NextResponse.json({
     success: true,
     racecourses: getRacecoursesByCountry(),
+    availableDates,
     message: 'Available racecourses retrieved successfully'
   })
 }
