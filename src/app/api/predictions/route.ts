@@ -1,8 +1,6 @@
 /**
- * Elghali AI - Predictions API
- * Main API endpoint for horse racing predictions
- * Version: 2.0 - Updated with complete race data
- * Last Update: 2026-02-22
+ * Elghali AI - API v3.0
+ * With Withdrawals, Surprises, and Non-Competitor Support
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,17 +14,15 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { date, racecourse, email, sendEmail } = body
 
-    console.log(`[API] Request: date=${date}, racecourse=${racecourse}, email=${email}`)
+    console.log(`[API v3.0] Request: date=${date}, racecourse=${racecourse}`)
 
-    // Validate required fields
     if (!date || !racecourse) {
       return NextResponse.json({
         success: false,
         message: 'التاريخ واسم المضمار مطلوبان',
         racecourse: racecourse || '',
         date: date || '',
-        totalRaces: 0,
-        races: [],
+        totalRaces: 0, races: [],
         napOfTheDay: { horseName: '', raceName: '', reason: '', confidence: 0 },
         nextBest: { horseName: '', raceName: '', reason: '' },
         valuePick: { horseName: '', raceName: '', reason: '' },
@@ -35,20 +31,15 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Normalize racecourse name
     const normalizedName = normalizeRacecourse(racecourse)
-    
-    // Find race data
     const raceDayData = getRaceData(normalizedName, date)
     
     if (!raceDayData) {
       return NextResponse.json({
         success: false,
         message: `لا توجد سباقات في ${normalizedName} بتاريخ ${date}`,
-        racecourse: normalizedName,
-        date,
-        totalRaces: 0,
-        races: [],
+        racecourse: normalizedName, date,
+        totalRaces: 0, races: [],
         napOfTheDay: { horseName: '', raceName: '', reason: '', confidence: 0 },
         nextBest: { horseName: '', raceName: '', reason: '' },
         valuePick: { horseName: '', raceName: '', reason: '' },
@@ -57,11 +48,13 @@ export async function POST(request: NextRequest) {
       }, { status: 404 })
     }
 
-    console.log(`[API] Found ${raceDayData.races.length} races`)
+    console.log(`[API v3.0] Found ${raceDayData.races.length} races for ${normalizedName}`)
 
-    // Generate predictions for each race
     const racePredictions = []
     const allPredictions: any[] = []
+    const allWithdrawals: string[] = []
+    const allNonRunners: string[] = []
+    const allSurprises: string[] = []
 
     for (const race of raceDayData.races) {
       const prediction = predictionEngine.predictRace(race, normalizedName)
@@ -89,12 +82,21 @@ export async function POST(request: NextRequest) {
           weight: p.weight,
           strengths: p.strengths,
           concerns: p.concerns,
-          analysis: p.analysis
+          analysis: p.analysis,
+          isWithdrawn: p.isWithdrawn,
+          isNonRunner: p.isNonRunner,
+          hasNoCompetitor: p.hasNoCompetitor,
+          isSurprise: p.isSurprise,
+          isFavorite: p.isFavorite
         })),
-        raceAnalysis: prediction.raceAnalysis
+        raceAnalysis: prediction.raceAnalysis,
+        withdrawals: prediction.withdrawals,
+        nonRunners: prediction.nonRunners,
+        noCompetitorHorse: prediction.noCompetitorHorse,
+        surpriseHorses: prediction.surpriseHorses
       })
 
-      // Collect all predictions for NAP selection
+      // Collect all data
       prediction.predictions.forEach((p, i) => {
         allPredictions.push({
           ...p,
@@ -103,23 +105,21 @@ export async function POST(request: NextRequest) {
           position: i + 1
         })
       })
+      
+      allWithdrawals.push(...prediction.withdrawals)
+      allNonRunners.push(...prediction.nonRunners)
+      allSurprises.push(...prediction.surpriseHorses)
     }
 
-    // Sort by power score to find best overall picks
+    // Sort by power score
     allPredictions.sort((a, b) => b.powerScore - a.powerScore)
 
-    // NAP of the Day - highest power score
     const napPick = allPredictions[0]
-    
-    // Next Best - second highest
     const nextBestPick = allPredictions[1] || allPredictions[0]
-    
-    // Value Pick - best value rating in top 10
     const valuePickHorse = allPredictions.slice(0, 10).find(p => 
       p.valueRating === 'Excellent' || p.valueRating === 'Good'
     ) || allPredictions[2] || allPredictions[0]
 
-    // Prepare report data
     const reportData = {
       racecourse: raceDayData.racecourse,
       country: raceDayData.country,
@@ -127,36 +127,32 @@ export async function POST(request: NextRequest) {
       totalRaces: raceDayData.races.length,
       races: racePredictions.map(rp => ({
         ...rp,
-        predictions: rp.predictions.map(p => ({
-          ...p,
-          strengths: p.strengths || [],
-          concerns: p.concerns || []
-        }))
+        predictions: rp.predictions.map(p => ({ ...p, strengths: p.strengths || [], concerns: p.concerns || [] }))
       })),
       napOfTheDay: {
-        horseName: napPick.name,
+        horseName: `${napPick.number}. ${napPick.name}`,
         raceName: napPick.raceName,
-        reason: `Power Score: ${napPick.powerScore} | Win: ${napPick.winProbability.toFixed(1)}% | الفارس: ${napPick.jockey}`,
-        confidence: Math.min(99, Math.round(napPick.winProbability * 2.5 + napPick.powerScore / 2))
+        reason: `Power Score: ${napPick.powerScore} | Win: ${napPick.winProbability.toFixed(1)}% | الفارس: ${napPick.jockey}${napPick.hasNoCompetitor ? ' | 🏆 بدون منافس' : ''}${napPick.isSurprise ? ' | ⚠️ مفاجأة' : ''}`,
+        confidence: napPick.hasNoCompetitor ? 100 : Math.min(99, Math.round(napPick.winProbability * 2.5 + napPick.powerScore / 2))
       },
       nextBest: {
-        horseName: nextBestPick.name,
+        horseName: `${nextBestPick.number}. ${nextBestPick.name}`,
         raceName: nextBestPick.raceName,
         reason: `Power Score: ${nextBestPick.powerScore} | الفارس: ${nextBestPick.jockey}`
       },
       valuePick: {
-        horseName: valuePickHorse.name,
+        horseName: `${valuePickHorse.number}. ${valuePickHorse.name}`,
         raceName: valuePickHorse.raceName,
         reason: `Value: ${valuePickHorse.valueRating} | Power: ${valuePickHorse.powerScore}`
       },
-      generatedAt: new Date().toLocaleString('ar-AE', { timeZone: 'Asia/Dubai' })
+      generatedAt: new Date().toLocaleString('ar-AE', { timeZone: 'Asia/Dubai' }),
+      withdrawals: allWithdrawals,
+      nonRunners: allNonRunners,
+      surprises: allSurprises
     }
 
-    // Generate PDF
     const pdfResult = await pdfGenerator.generateReport(reportData)
-    console.log(`[API] PDF generated: ${pdfResult.success}`)
-
-    // Send email if requested
+    
     let emailSent = false
     if (sendEmail && email && pdfResult.success) {
       const emailResult = await sendPredictionEmail({
@@ -168,14 +164,10 @@ export async function POST(request: NextRequest) {
         pdfPath: pdfResult.pdfPath || undefined
       })
       emailSent = emailResult.success
-      console.log(`[API] Email sent: ${emailSent}`)
     }
 
-    // Get live stream URL
     const racecourseInfo = RACECOURSES.UAE.find(r => r.name === normalizedName)
-    const liveStreamUrl = racecourseInfo?.liveStreamUrl || null
 
-    // Return response
     return NextResponse.json({
       success: true,
       message: `تم تحليل ${raceDayData.races.length} سباق في ${raceDayData.racecourse} بنجاح`,
@@ -187,23 +179,23 @@ export async function POST(request: NextRequest) {
       napOfTheDay: reportData.napOfTheDay,
       nextBest: reportData.nextBest,
       valuePick: reportData.valuePick,
-      sources: ['Emirates Racing Authority', 'Elghali AI Analysis'],
+      sources: raceDayData.sources,
       pdfPath: pdfResult.success ? pdfResult.pdfPath : null,
       pdfGenerated: pdfResult.success,
       emailSent,
-      liveStreamUrl,
+      liveStreamUrl: racecourseInfo?.liveStreamUrl || null,
+      withdrawals: allWithdrawals,
+      nonRunners: allNonRunners,
+      surprises: allSurprises,
       availableRacecourses: getRacecoursesByCountry()
     })
 
   } catch (error) {
-    console.error('[API] Error:', error)
+    console.error('[API v3.0] Error:', error)
     return NextResponse.json({
       success: false,
       message: 'حدث خطأ أثناء معالجة الطلب',
-      racecourse: '',
-      date: '',
-      totalRaces: 0,
-      races: [],
+      racecourse: '', date: '', totalRaces: 0, races: [],
       napOfTheDay: { horseName: '', raceName: '', reason: '', confidence: 0 },
       nextBest: { horseName: '', raceName: '', reason: '' },
       valuePick: { horseName: '', raceName: '', reason: '' },
@@ -213,12 +205,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * GET - Available racecourses and dates
- */
 export async function GET() {
   const availableDates = [...new Set(UAE_RACES.map(r => r.date))].sort()
-  
   return NextResponse.json({
     success: true,
     racecourses: getRacecoursesByCountry(),
@@ -227,18 +215,10 @@ export async function GET() {
   })
 }
 
-/**
- * Get racecourses grouped by country
- */
 function getRacecoursesByCountry(): Record<string, { name: string; city: string }[]> {
   const result: Record<string, { name: string; city: string }[]> = {}
-  
   for (const [country, courses] of Object.entries(RACECOURSES)) {
-    result[country] = courses.map(c => ({
-      name: c.name,
-      city: c.city
-    }))
+    result[country] = courses.map(c => ({ name: c.name, city: c.city }))
   }
-  
   return result
 }
