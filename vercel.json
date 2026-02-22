@@ -9,5 +9,7 @@
       "memory": 1024,
       "maxDuration": 30
     }
-  }
+  },
+  "version": 2,
+  "lastUpdate": "2026-02-22-complete-race-data"
 }
