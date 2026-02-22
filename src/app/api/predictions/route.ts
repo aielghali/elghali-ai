@@ -1,6 +1,8 @@
 /**
  * Elghali AI - Predictions API
  * Main API endpoint for horse racing predictions
+ * Version: 2.0 - Updated with complete race data
+ * Last Update: 2026-02-22
  */
 
 import { NextRequest, NextResponse } from 'next/server'
